@@ -1,0 +1,15 @@
+{
+  "app": {
+    "name": "수학몬스터 오일러",
+    "url": "https://mathmon-euler.vercel.app",
+    "stack": "Next.js"
+  },
+  "tracks": [
+    "security"
+  ],
+  "edzipCase": null,
+  "teacher": {
+    "dormsHandle": ""
+  },
+  "ownershipConfirmed": true
+}
