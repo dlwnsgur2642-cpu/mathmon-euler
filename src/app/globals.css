@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Nanum+Gothic+Coding:wght@400;700&display=swap');
+
+:root {
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+}
+
+html, body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Nanum Gothic Coding', monospace;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* 레트로 픽셀 스크롤바 */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #1e293b; }
+::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+
+/* 커스텀 애니메이션 */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-in { animation: fadeIn 0.18s ease-out; }
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-3px); }
+  40% { transform: translateX(3px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
+}
+.animate-shake { animation: shake 0.3s ease-in-out; }
+
+/* HP바 컬러 전환 */
+.hp-high { background-color: #10b981; }
+.hp-mid  { background-color: #eab308; }
+.hp-low  { background-color: #ef4444; }

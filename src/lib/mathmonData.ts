@@ -1,0 +1,516 @@
+import { ElementType, MathmonSpecies, Move, MathmonInstance } from '@/types/game';
+
+// 상성 배율: 공격 타입 -> 방어 타입
+export const TYPE_CHART: Record<ElementType, Partial<Record<ElementType, number>>> = {
+  풀: { 물: 2, 땅: 2, 불: 0.5, 비행: 0.5, 풀: 0.5, 입체: 0.5 },
+  불: { 풀: 2, 입체: 2, 물: 0.5, 불: 0.5, 기하: 1.5 },
+  물: { 불: 2, 땅: 2, 풀: 0.5, 물: 0.5, 전기: 0.5 },
+  전기: { 물: 2, 비행: 2, 땅: 0, 전기: 0.5, 통계: 1.5 },
+  땅: { 전기: 2, 불: 2, 비행: 0, 풀: 0.5, 입체: 2 },
+  비행: { 풀: 2, 전기: 0.5, 땅: 1, 기하: 1.5 },
+  기하: { 입체: 2, 비행: 1.5, 불: 0.5, 기하: 0.5 },
+  입체: { 통계: 2, 풀: 2, 기하: 0.5, 물: 0.5 },
+  통계: { 기하: 2, 전기: 2, 입체: 0.5, 통계: 0.5 },
+  노말: { 입체: 0.5 },
+};
+
+export function getEffectiveness(attackType: ElementType, defenderTypes: ElementType[]): number {
+  let multiplier = 1;
+  for (const defType of defenderTypes) {
+    const chart = TYPE_CHART[attackType];
+    if (chart && chart[defType] !== undefined) {
+      multiplier *= chart[defType]!;
+    }
+  }
+  return multiplier;
+}
+
+export const MOVES_DATA: Record<string, Move> = {
+  tackle: {
+    id: 'tackle',
+    name: '몸통박치기',
+    type: '노말',
+    power: 40,
+    accuracy: 100,
+    pp: 35,
+    maxPp: 35,
+    description: '온몸으로 상대를 강하게 들이받는다.',
+  },
+  fan_whip: {
+    id: 'fan_whip',
+    name: '꼬리 부채질',
+    type: '풀',
+    power: 40,
+    accuracy: 100,
+    pp: 25,
+    maxPp: 25,
+    description: '부채꼴 꼬리를 휘둘러 상쾌한 바람 채찍을 날린다.',
+  },
+  same_angle_strike: {
+    id: 'same_angle_strike',
+    name: '동위각 찌르기',
+    type: '기하',
+    power: 55,
+    accuracy: 95,
+    pp: 20,
+    maxPp: 20,
+    description: '평행선에서 같은 위치의 각을 정확히 노려 찌른다.',
+  },
+  alt_angle_slash: {
+    id: 'alt_angle_slash',
+    name: '엇각 슬래시',
+    type: '기하',
+    power: 70,
+    accuracy: 90,
+    pp: 15,
+    maxPp: 15,
+    description: '엇갈린 방향의 엇각 각도를 활용해 급소를 벤다.',
+  },
+  central_solar_beam: {
+    id: 'central_solar_beam',
+    name: '중심각 솔라빔',
+    type: '풀',
+    power: 95,
+    accuracy: 85,
+    pp: 5,
+    maxPp: 5,
+    description: '부채꼴 중심각의 크기에 비례하는 강력한 햇빛 광선을 뿜는다.',
+  },
+  ember: {
+    id: 'ember',
+    name: '불꽃세례',
+    type: '불',
+    power: 40,
+    accuracy: 100,
+    pp: 25,
+    maxPp: 25,
+    description: '작은 불꽃 조각을 연속으로 날린다.',
+  },
+  vertex_strike: {
+    id: 'vertex_strike',
+    name: '꼭짓점 찌르기',
+    type: '입체',
+    power: 55,
+    accuracy: 95,
+    pp: 20,
+    maxPp: 20,
+    description: '다면체의 뾰족한 꼭짓점으로 상대를 찌른다.',
+  },
+  edge_tackle: {
+    id: 'edge_tackle',
+    name: '모서리 돌진',
+    type: '입체',
+    power: 65,
+    accuracy: 90,
+    pp: 15,
+    maxPp: 15,
+    description: '단단한 모서리를 세우고 빠르게 돌진한다.',
+  },
+  surface_fire: {
+    id: 'surface_fire',
+    name: '겉넓이 화염방사',
+    type: '불',
+    power: 80,
+    accuracy: 90,
+    pp: 10,
+    maxPp: 10,
+    description: '입체도형 모든 면의 겉넓이를 불태우는 거대한 화염을 방사한다.',
+  },
+  euler_meteor: {
+    id: 'euler_meteor',
+    name: '오일러 메테오',
+    type: '입체',
+    power: 100,
+    accuracy: 80,
+    pp: 5,
+    maxPp: 5,
+    description: '꼭짓점-모서리+면=2의 법칙이 깃든 다면체 운석을 떨어뜨린다.',
+  },
+  water_gun: {
+    id: 'water_gun',
+    name: '물대포',
+    type: '물',
+    power: 40,
+    accuracy: 100,
+    pp: 25,
+    maxPp: 25,
+    description: '물을 강하게 뿜어 상대를 공격한다.',
+  },
+  generator_spin: {
+    id: 'generator_spin',
+    name: '모선 회전어택',
+    type: '기하',
+    power: 55,
+    accuracy: 95,
+    pp: 20,
+    maxPp: 20,
+    description: '회전축 둘레로 모선을 빠르게 회전시켜 상대를 타격한다.',
+  },
+  cylinder_hydro: {
+    id: 'cylinder_hydro',
+    name: '원기둥 하이드로',
+    type: '물',
+    power: 75,
+    accuracy: 90,
+    pp: 15,
+    maxPp: 15,
+    description: '밑면과 높이로 만들어진 거대한 물기둥 소용돌이를 솟구치게 한다.',
+  },
+  sphere_cannon: {
+    id: 'sphere_cannon',
+    name: '구의 부피 캐논',
+    type: '물',
+    power: 100,
+    accuracy: 80,
+    pp: 5,
+    maxPp: 5,
+    description: '4/3 파이 r세제곱의 완전한 구체 수압을 날려 폭발시킨다.',
+  },
+  growth: {
+    id: 'growth',
+    name: '비례 성장',
+    type: '풀',
+    power: 0,
+    accuracy: 100,
+    pp: 20,
+    maxPp: 20,
+    description: '정비례의 힘으로 자신의 공격력을 1단계 높인다.',
+    effect: 'atkUp',
+  },
+  harden_poly: {
+    id: 'harden_poly',
+    name: '다면 굳히기',
+    type: '입체',
+    power: 0,
+    accuracy: 100,
+    pp: 25,
+    maxPp: 25,
+    description: '모든 면의 결속력을 높여 방어력을 1단계 높인다.',
+    effect: 'defUp',
+  },
+  histo_bar: {
+    id: 'histo_bar',
+    name: '도수 기둥치기',
+    type: '통계',
+    power: 60,
+    accuracy: 95,
+    pp: 20,
+    maxPp: 20,
+    description: '히스토그램의 직사각형 직립 기둥으로 상대를 내리친다.',
+  },
+  relative_wave: {
+    id: 'relative_wave',
+    name: '상대도수 파동',
+    type: '통계',
+    power: 80,
+    accuracy: 90,
+    pp: 10,
+    maxPp: 10,
+    description: '합이 1이 되는 상대도수의 조화로운 파동으로 공격한다.',
+  },
+};
+
+export const SPECIES_DATA: Record<string, MathmonSpecies> = {
+  // === 스타터 1 계열 (풀/기하) ===
+  gakdorong: {
+    id: 'gakdorong',
+    name: '각도롱',
+    type: ['풀', '기하'],
+    baseHp: 48,
+    baseAtk: 50,
+    baseDef: 48,
+    baseSpd: 54,
+    learnset: [
+      { level: 1, moveId: 'tackle' },
+      { level: 1, moveId: 'fan_whip' },
+      { level: 7, moveId: 'growth' },
+      { level: 11, moveId: 'same_angle_strike' },
+      { level: 15, moveId: 'alt_angle_slash' },
+    ],
+    evo: { level: 16, toId: 'buchaedorong' },
+    dexCategory: '부채꼴 도롱뇽',
+    dexDesc: '부채꼴 꼬리를 살랑이며 각도를 잰다. 중심각이 넓을수록 기분이 좋다.',
+    color: '#34d399',
+    accentColor: '#059669',
+    spriteShape: 'lizard',
+  },
+  buchaedorong: {
+    id: 'buchaedorong',
+    name: '부채도롱',
+    type: ['풀', '기하'],
+    baseHp: 65,
+    baseAtk: 68,
+    baseDef: 64,
+    baseSpd: 70,
+    learnset: [
+      { level: 16, moveId: 'alt_angle_slash' },
+      { level: 24, moveId: 'central_solar_beam' },
+    ],
+    evo: { level: 34, toId: 'hodoryong' },
+    dexCategory: '중심각 도롱뇽',
+    dexDesc: '목 둘레에 핀 부채꼴 프릴이 펼쳐지면 호의 길이가 두 배로 길어진다.',
+    color: '#10b981',
+    accentColor: '#047857',
+    spriteShape: 'lizard_evo',
+  },
+  hodoryong: {
+    id: 'hodoryong',
+    name: '호도룡',
+    type: ['풀', '기하'],
+    baseHp: 88,
+    baseAtk: 92,
+    baseDef: 85,
+    baseSpd: 90,
+    learnset: [
+      { level: 34, moveId: 'central_solar_beam' },
+      { level: 42, moveId: 'euler_meteor' },
+    ],
+    dexCategory: '원호 수호룡',
+    dexDesc: '원과 부채꼴의 신비를 깨달은 드래곤. 중심각 솔라빔으로 하늘을 가른다.',
+    color: '#059669',
+    accentColor: '#064e3b',
+    spriteShape: 'dragon',
+  },
+
+  // === 스타터 2 계열 (불/입체) ===
+  damyeonho: {
+    id: 'damyeonho',
+    name: '다면호',
+    type: ['불', '입체'],
+    baseHp: 46,
+    baseAtk: 58,
+    baseDef: 50,
+    baseSpd: 46,
+    learnset: [
+      { level: 1, moveId: 'tackle' },
+      { level: 1, moveId: 'ember' },
+      { level: 7, moveId: 'harden_poly' },
+      { level: 11, moveId: 'vertex_strike' },
+      { level: 15, moveId: 'edge_tackle' },
+    ],
+    evo: { level: 16, toId: 'jeongdamyeonho' },
+    dexCategory: '정사면체 호랑이',
+    dexDesc: '이마에 정사면체 뿔을 단 아기 호랑이. 모서리로 바위를 들이받는다.',
+    color: '#f87171',
+    accentColor: '#dc2626',
+    spriteShape: 'tiger',
+  },
+  jeongdamyeonho: {
+    id: 'jeongdamyeonho',
+    name: '정다면호',
+    type: ['불', '입체'],
+    baseHp: 64,
+    baseAtk: 78,
+    baseDef: 66,
+    baseSpd: 62,
+    learnset: [
+      { level: 16, moveId: 'edge_tackle' },
+      { level: 24, moveId: 'surface_fire' },
+    ],
+    evo: { level: 34, toId: 'eulertiger' },
+    dexCategory: '다면 갑옷 호랑이',
+    dexDesc: '정팔면체의 단단한 갑옷을 입고 뜨거운 화염을 모서리 사이로 내뿜는다.',
+    color: '#ef4444',
+    accentColor: '#b91c1c',
+    spriteShape: 'tiger_evo',
+  },
+  eulertiger: {
+    id: 'eulertiger',
+    name: '오일러타이거',
+    type: ['불', '입체'],
+    baseHp: 86,
+    baseAtk: 104,
+    baseDef: 88,
+    baseSpd: 82,
+    learnset: [
+      { level: 34, moveId: 'surface_fire' },
+      { level: 45, moveId: 'euler_meteor' },
+    ],
+    dexCategory: '오일러 맹수',
+    dexDesc: '오일러의 정리 V-E+F=2의 축복을 받은 황금 불꽃 호랑이.',
+    color: '#dc2626',
+    accentColor: '#7f1d1d',
+    spriteShape: 'beast',
+  },
+
+  // === 스타터 3 계열 (물/기하) ===
+  wonppulbeom: {
+    id: 'wonppulbeom',
+    name: '원뿔범',
+    type: ['물', '기하'],
+    baseHp: 52,
+    baseAtk: 46,
+    baseDef: 54,
+    baseSpd: 48,
+    learnset: [
+      { level: 1, moveId: 'tackle' },
+      { level: 1, moveId: 'water_gun' },
+      { level: 7, moveId: 'harden_poly' },
+      { level: 11, moveId: 'generator_spin' },
+      { level: 15, moveId: 'cylinder_hydro' },
+    ],
+    evo: { level: 16, toId: 'hoejeonsa' },
+    dexCategory: '원뿔 아기물범',
+    dexDesc: '원뿔 모양 고깔모자를 쓰고 제자리에서 팽이처럼 빙빙 돌며 파도를 만든다.',
+    color: '#60a5fa',
+    accentColor: '#2563eb',
+    spriteShape: 'seal',
+  },
+  hoejeonsa: {
+    id: 'hoejeonsa',
+    name: '회전바다사자',
+    type: ['물', '기하'],
+    baseHp: 72,
+    baseAtk: 64,
+    baseDef: 72,
+    baseSpd: 62,
+    learnset: [
+      { level: 16, moveId: 'generator_spin' },
+      { level: 24, moveId: 'cylinder_hydro' },
+    ],
+    evo: { level: 34, toId: 'guhaewang' },
+    dexCategory: '원뿔대 바다사자',
+    dexDesc: '원뿔대를 깎아지른 듯한 육중한 체구로 거대한 바다 소용돌이를 다스린다.',
+    color: '#3b82f6',
+    accentColor: '#1d4ed8',
+    spriteShape: 'seal_evo',
+  },
+  guhaewang: {
+    id: 'guhaewang',
+    name: '구해왕',
+    type: ['물', '기하'],
+    baseHp: 96,
+    baseAtk: 84,
+    baseDef: 96,
+    baseSpd: 74,
+    learnset: [
+      { level: 34, moveId: 'cylinder_hydro' },
+      { level: 45, moveId: 'sphere_cannon' },
+    ],
+    dexCategory: '완전 구체 군주',
+    dexDesc: '회전체의 궁극인 완전 구체를 이룬 심해 군주. 구의 부피 캐논을 발사한다.',
+    color: '#1d4ed8',
+    accentColor: '#1e3a8a',
+    spriteShape: 'whale',
+  },
+
+  // === 야생 수학몬들 (중1-2 개념) ===
+  matkkokji_bird: {
+    id: 'matkkokji_bird',
+    name: '맞꼭지새',
+    type: ['노말', '비행'],
+    baseHp: 44,
+    baseAtk: 54,
+    baseDef: 42,
+    baseSpd: 60,
+    learnset: [
+      { level: 1, moveId: 'tackle' },
+      { level: 5, moveId: 'same_angle_strike' },
+    ],
+    dexCategory: '맞꼭지각 새',
+    dexDesc: '가위 모양의 두 부리가 교차하며 언제나 같은 크기의 맞꼭지각을 유지한다.',
+    color: '#f59e0b',
+    accentColor: '#b45309',
+    spriteShape: 'bird',
+  },
+  pyeonghaeng_cat: {
+    id: 'pyeonghaeng_cat',
+    name: '평행냥',
+    type: ['기하', '노말'],
+    baseHp: 45,
+    baseAtk: 50,
+    baseDef: 45,
+    baseSpd: 65,
+    learnset: [
+      { level: 1, moveId: 'tackle' },
+      { level: 6, moveId: 'alt_angle_slash' },
+    ],
+    dexCategory: '평행선 고양이',
+    dexDesc: '두 개의 꼬리가 완벽한 평행을 이룬다. 엇각의 크기가 항상 같음을 알고 있다.',
+    color: '#c084fc',
+    accentColor: '#7e22ce',
+    spriteShape: 'cat',
+  },
+  jakdo_frog: {
+    id: 'jakdo_frog',
+    name: '작도개구리',
+    type: ['땅', '기하'],
+    baseHp: 55,
+    baseAtk: 48,
+    baseDef: 58,
+    baseSpd: 42,
+    learnset: [
+      { level: 1, moveId: 'tackle' },
+      { level: 8, moveId: 'harden_poly' },
+    ],
+    dexCategory: '컴퍼스 개구리',
+    dexDesc: '두 다리를 컴퍼스처럼 벌려 진흙 위에 완벽한 원과 수직이등분선을 작도한다.',
+    color: '#84cc16',
+    accentColor: '#4d7c0f',
+    spriteShape: 'frog',
+  },
+  histo_turtle: {
+    id: 'histo_turtle',
+    name: '히스토북이',
+    type: ['물', '통계'],
+    baseHp: 60,
+    baseAtk: 45,
+    baseDef: 70,
+    baseSpd: 35,
+    learnset: [
+      { level: 1, moveId: 'water_gun' },
+      { level: 8, moveId: 'histo_bar' },
+      { level: 14, moveId: 'relative_wave' },
+    ],
+    dexCategory: '도수분포 거북',
+    dexDesc: '등껍질 무늬가 히스토그램 막대그래프로 되어 있어 도수 분포를 한눈에 보여준다.',
+    color: '#06b6d4',
+    accentColor: '#0891b2',
+    spriteShape: 'turtle',
+  },
+};
+
+export function createMathmon(speciesId: string, level: number): MathmonInstance {
+  const species = SPECIES_DATA[speciesId];
+  if (!species) throw new Error(`Unknown species: ${speciesId}`);
+
+  const maxHp = Math.floor((species.baseHp * 2 * level) / 100 + level + 10);
+  const atk = Math.floor((species.baseAtk * 2 * level) / 100 + 5);
+  const def = Math.floor((species.baseDef * 2 * level) / 100 + 5);
+  const spd = Math.floor((species.baseSpd * 2 * level) / 100 + 5);
+
+  // 배울 수 있는 기술 중 최신 4개 선정
+  const availableMoves = species.learnset
+    .filter((l) => l.level <= level)
+    .map((l) => MOVES_DATA[l.moveId])
+    .filter(Boolean);
+
+  const selectedMoves = availableMoves.slice(-4);
+  if (selectedMoves.length === 0) {
+    selectedMoves.push(MOVES_DATA.tackle);
+  }
+
+  const currentPp: { [moveId: string]: number } = {};
+  selectedMoves.forEach((m) => {
+    currentPp[m.id] = m.pp;
+  });
+
+  return {
+    instanceId: Math.random().toString(36).substring(2, 9),
+    speciesId,
+    name: species.name,
+    level,
+    hp: maxHp,
+    maxHp,
+    atk,
+    def,
+    spd,
+    moves: selectedMoves,
+    currentPp,
+    exp: 0,
+    expToNext: level * level * 20,
+    status: null,
+    stageAtk: 0,
+    stageDef: 0,
+  };
+}
