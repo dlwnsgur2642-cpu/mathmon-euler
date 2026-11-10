@@ -518,7 +518,8 @@ export function makeSprite(sp: string, mode: 'front' | 'back' | 'sil' = 'front',
         continue;
       }
 
-      let r = pal[k][0], g2 = pal[k][1], b = pal[k][2], f = 1;
+      const curPal = pal[k] || [200, 200, 200];
+      let r = curPal[0], g2 = curPal[1], b = curPal[2], f = 1;
       let line = false;
       const lk = lum[k] + 22;
 

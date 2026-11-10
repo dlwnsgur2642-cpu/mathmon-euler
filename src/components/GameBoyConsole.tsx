@@ -1,11 +1,10 @@
 ﻿"use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { SFX, unlockAudio } from "@/lib/retroAudio";
-import { SP, MOVES, CHART, GYM_LEADERS } from "@/lib/mathmonEulerData";
+import { SP, MOVES } from "@/lib/mathmonEulerData";
 import { makeSprite, spr, chSprite, tileFor } from "@/lib/retroGraphics";
 import { getRandomQuiz, QuizQuestion } from "@/lib/eulerQuizGen";
-import { supabase } from "@/lib/supabase";
 
 export interface PlayerMon {
   sp: string;
@@ -36,6 +35,24 @@ export interface SaveState {
   wrongNotes: Array<{ q: string; ans: string; ex: string }>;
 }
 
+const DEFAULT_SAVE_STATE: SaveState = {
+  name: "지우",
+  map: "eulerLab",
+  x: 4,
+  y: 6,
+  dir: "up",
+  team: [],
+  caught: {},
+  seen: {},
+  badges: [false, false, false, false, false],
+  items: { potion: 5, ball: 10 },
+  solvedCount: 0,
+  correctCount: 0,
+  wrongNotes: []
+};
+
+const STORAGE_KEY = "mathmon_euler_gold_v2";
+
 export default function GameBoyConsole() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -43,14 +60,12 @@ export default function GameBoyConsole() {
   const [scene, setScene] = useState<"title" | "world" | "battle" | "evo">("title");
   const [tbText, setTbText] = useState<string>("");
   const [tbVisible, setTbVisible] = useState<boolean>(false);
-  const [activeMenu, setActiveMenu] = useState<string | null>(null); // 'start', 'battle', 'moves', 'pokedex', 'trainer', 'pvp'
-  const [menuCursor, setMenuCursor] = useState<number>(0);
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // 퀴즈 팝업 상태
   const [currentQuiz, setCurrentQuiz] = useState<QuizQuestion | null>(null);
   const [quizTimer, setQuizTimer] = useState<number>(8);
-  const [quizSelected, setQuizSelected] = useState<number>(0);
   const [quizAnswered, setQuizAnswered] = useState<boolean>(false);
   const [quizFeedback, setQuizFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -59,21 +74,7 @@ export default function GameBoyConsole() {
   const [pvpStatus, setPvpStatus] = useState<string>("");
 
   // 플레이어 및 월드 상태
-  const gameStateRef = useRef<SaveState>({
-    name: "지우",
-    map: "eulerLab",
-    x: 4,
-    y: 6,
-    dir: "up",
-    team: [],
-    caught: {},
-    seen: {},
-    badges: [false, false, false, false, false],
-    items: { potion: 5, ball: 10 },
-    solvedCount: 0,
-    correctCount: 0,
-    wrongNotes: []
-  });
+  const gameStateRef = useRef<SaveState>(JSON.parse(JSON.stringify(DEFAULT_SAVE_STATE)));
 
   // 배틀 런타임 상태
   const battleStateRef = useRef<{
@@ -83,8 +84,6 @@ export default function GameBoyConsole() {
     playerMonIndex: number;
     turn: "player" | "enemy";
     pendingMove?: string;
-    isCrit?: boolean;
-    turnText?: string;
   } | null>(null);
 
   // 오버월드 맵 데이터
@@ -163,10 +162,10 @@ export default function GameBoyConsole() {
     setTbVisible(false);
   };
 
-  // 로컬 저장 / 불러오기
+  // 로컬 저장 / 불러오기 (호환성 보장)
   const saveGame = () => {
     try {
-      localStorage.setItem("mathmon_euler_save", JSON.stringify(gameStateRef.current));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(gameStateRef.current));
       showToast("리포트를 꼼꼼히 기록했습니다!");
       SFX.ok();
     } catch {}
@@ -174,12 +173,31 @@ export default function GameBoyConsole() {
 
   const loadGame = () => {
     try {
-      const data = localStorage.getItem("mathmon_euler_save");
-      if (data) {
-        gameStateRef.current = JSON.parse(data);
+      // 신규 키 확인
+      let raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        // 구버전 키 클리어
+        localStorage.removeItem("mathmon_euler_save");
+        return;
+      }
+      const data = JSON.parse(raw);
+      if (data && typeof data === "object") {
+        gameStateRef.current = {
+          ...DEFAULT_SAVE_STATE,
+          ...data,
+          team: Array.isArray(data.team) ? data.team : [],
+          caught: data.caught || {},
+          seen: data.seen || {},
+          badges: Array.isArray(data.badges) ? data.badges : [false, false, false, false, false],
+          items: data.items || { potion: 5, ball: 10 },
+          wrongNotes: Array.isArray(data.wrongNotes) ? data.wrongNotes : []
+        };
         showToast("이전 모험을 불러왔습니다!");
       }
-    } catch {}
+    } catch (e) {
+      console.warn("Save load fallback to default:", e);
+      gameStateRef.current = JSON.parse(JSON.stringify(DEFAULT_SAVE_STATE));
+    }
   };
 
   // 몬스터 생성 팩토리
@@ -205,8 +223,7 @@ export default function GameBoyConsole() {
   // 게임 시작 시 초기화
   useEffect(() => {
     loadGame();
-    // 스타팅 선택 전이면 연구소 안내 메시지
-    if (gameStateRef.current.team.length === 0) {
+    if ((gameStateRef.current.team || []).length === 0) {
       showText("오일러 박사: 안녕! 기다리고 있었단다.\n연구실 책상 위의 몬스터볼을 조사해 첫 수학몬을 고르려무나!");
     }
   }, []);
@@ -218,7 +235,6 @@ export default function GameBoyConsole() {
       setQuizTimer(t => {
         if (t <= 1) {
           clearInterval(itv);
-          // 시간 초과 처리
           handleQuizSubmit(-1);
           return 0;
         }
@@ -232,7 +248,9 @@ export default function GameBoyConsole() {
   const startBattle = (enemySp: string, enemyLv: number, kind: "wild" | "trainer" | "gym" = "wild") => {
     SFX.enc();
     const enemy = createMon(enemySp, enemyLv);
-    gameStateRef.current.seen[enemySp] = true;
+    if (gameStateRef.current.seen) {
+      gameStateRef.current.seen[enemySp] = true;
+    }
     battleStateRef.current = {
       kind,
       enemy,
@@ -248,15 +266,16 @@ export default function GameBoyConsole() {
     if (!currentQuiz || quizAnswered) return;
     setQuizAnswered(true);
     const isCorrect = optIndex >= 0 && currentQuiz.opts[optIndex] === currentQuiz.ans;
-    const isCrit = isCorrect && quizTimer >= 4; // 4초 이상 남았을 때 급소 타격!
+    const isCrit = isCorrect && quizTimer >= 4;
 
-    gameStateRef.current.solvedCount++;
+    gameStateRef.current.solvedCount = (gameStateRef.current.solvedCount || 0) + 1;
     if (isCorrect) {
-      gameStateRef.current.correctCount++;
+      gameStateRef.current.correctCount = (gameStateRef.current.correctCount || 0) + 1;
       SFX.crit();
       setQuizFeedback({ ok: true, msg: isCrit ? "급소에 맞았다!! (정답 + 급소 타격!)" : "정답이다! (공격 성공!)" });
     } else {
       SFX.no();
+      if (!gameStateRef.current.wrongNotes) gameStateRef.current.wrongNotes = [];
       gameStateRef.current.wrongNotes.push({
         q: currentQuiz.q,
         ans: currentQuiz.ans,
@@ -266,7 +285,6 @@ export default function GameBoyConsole() {
     }
 
     setTimeout(() => {
-      // 퀴즈 닫고 실제 배틀 대미지 적용
       setCurrentQuiz(null);
       setQuizAnswered(false);
       setQuizFeedback(null);
@@ -279,9 +297,12 @@ export default function GameBoyConsole() {
     const b = battleStateRef.current;
     if (!b) return;
 
-    const pMon = gameStateRef.current.team[b.playerMonIndex];
+    const team = gameStateRef.current.team || [];
+    const pMon = team[b.playerMonIndex] || team[0];
     const eMon = b.enemy;
     const move = MOVES[b.pendingMove || "몸통박치기"] || MOVES["몸통박치기"];
+
+    if (!pMon) return;
 
     if (!hit) {
       showText(`${pMon.name}의 ${move.name}!(은)는 빗나갔다!`);
@@ -296,13 +317,11 @@ export default function GameBoyConsole() {
 
     setTimeout(() => {
       if (eMon.hp <= 0) {
-        // 적 쓰러짐
         SFX.lvl();
         const gainXp = eMon.lv * 15;
         pMon.xp += gainXp;
         showText(`야생 ${eMon.name}(은)는 쓰러졌다!\n${pMon.name}(은)는 ${gainXp}의 경험치를 얻었다!`);
         
-        // 레벨업 체크
         if (pMon.xp >= pMon.maxXp) {
           pMon.lv++;
           pMon.xp = 0;
@@ -321,7 +340,6 @@ export default function GameBoyConsole() {
           hideText();
         }, 3000);
       } else {
-        // 적의 반격 턴
         b.turn = "enemy";
         setTimeout(() => {
           const eMoveName = eMon.moves[Math.floor(Math.random() * eMon.moves.length)] || "몸통박치기";
@@ -360,12 +378,13 @@ export default function GameBoyConsole() {
       showToast("트레이너의 몬스터는 잡을 수 없습니다!");
       return;
     }
-    if (gameStateRef.current.items.ball <= 0) {
+    const items = gameStateRef.current.items || { potion: 5, ball: 10 };
+    if ((items.ball || 0) <= 0) {
       showToast("몬스터볼이 없습니다!");
       return;
     }
 
-    gameStateRef.current.items.ball--;
+    items.ball--;
     SFX.ball();
     showText("지우는 몬스터볼을 던졌다!");
 
@@ -374,7 +393,9 @@ export default function GameBoyConsole() {
       const catchRate = ((e.maxhp * 3 - e.hp * 2) / (e.maxhp * 3)) * 0.85;
       if (Math.random() < catchRate) {
         SFX.catch();
+        if (!gameStateRef.current.caught) gameStateRef.current.caught = {};
         gameStateRef.current.caught[e.sp] = true;
+        if (!gameStateRef.current.team) gameStateRef.current.team = [];
         if (gameStateRef.current.team.length < 6) {
           gameStateRef.current.team.push(e);
         }
@@ -390,7 +411,7 @@ export default function GameBoyConsole() {
     }, 1800);
   };
 
-  // 캔버스 실시간 렌더링 루프
+  // 캔버스 실시간 렌더링 루프 (안전 보호)
   useEffect(() => {
     const cvs = canvasRef.current;
     if (!cvs) return;
@@ -400,79 +421,77 @@ export default function GameBoyConsole() {
     let animId: number;
 
     const render = () => {
-      const now = performance.now();
-      const st = gameStateRef.current;
+      try {
+        const now = performance.now();
+        const st = gameStateRef.current;
+        if (!st) return;
 
-      // 캔버스 초기화 (240 x 160)
-      ctx.fillStyle = "#101018";
-      ctx.fillRect(0, 0, 240, 160);
-
-      if (scene === "title") {
-        // 타이틀 화면
-        ctx.fillStyle = "#1e1b4b";
+        ctx.fillStyle = "#101018";
         ctx.fillRect(0, 0, 240, 160);
-        // 포켓몬 엠블럼 실루엣
-        const iconSp = spr("eulertiger", "front", 80);
-        ctx.drawImage(iconSp, 80, 45, 80, 80);
-      } else if (scene === "world") {
-        // 오버월드 렌더링
-        const m = MAPS.current[st.map] || MAPS.current.eulerLab;
-        const camX = Math.max(0, Math.min(st.x * 16 - 112, m.w * 16 - 240));
-        const camY = Math.max(0, Math.min(st.y * 16 - 72, m.h * 16 - 160));
-        const wf = Math.floor(now / 500) % 2;
 
-        // 타일 그리기
-        for (let y = 0; y < m.h; y++) {
-          for (let x = 0; x < m.w; x++) {
-            const tileChar = m.grid[y][x];
-            const tCvs = tileFor(tileChar, x, y, wf);
-            ctx.drawImage(tCvs, x * 16 - camX, y * 16 - camY);
+        if (scene === "title") {
+          ctx.fillStyle = "#1e1b4b";
+          ctx.fillRect(0, 0, 240, 160);
+          const iconSp = spr("eulertiger", "front", 80);
+          if (iconSp) {
+            ctx.drawImage(iconSp, 80, 45, 80, 80);
+          }
+        } else if (scene === "world") {
+          const mapId = st.map || "eulerLab";
+          const m = MAPS.current[mapId] || MAPS.current.eulerLab;
+          const px = typeof st.x === "number" ? st.x : 4;
+          const py = typeof st.y === "number" ? st.y : 6;
+          const camX = Math.max(0, Math.min(px * 16 - 112, m.w * 16 - 240));
+          const camY = Math.max(0, Math.min(py * 16 - 72, m.h * 16 - 160));
+          const wf = Math.floor(now / 500) % 2;
 
-            // 연구소 책상 위의 몬스터볼 3개
-            if (st.map === "eulerLab" && y === 3 && (x === 1 || x === 2 || x === 3)) {
-              ctx.fillStyle = "#e04a4a";
-              ctx.beginPath();
-              ctx.arc(x * 16 - camX + 8, y * 16 - camY + 8, 4, 0, Math.PI * 2);
-              ctx.fill();
+          for (let y = 0; y < m.h; y++) {
+            for (let x = 0; x < m.w; x++) {
+              const tileChar = m.grid[y]?.[x] || ".";
+              const tCvs = tileFor(tileChar, x, y, wf);
+              ctx.drawImage(tCvs, x * 16 - camX, y * 16 - camY);
+
+              if (mapId === "eulerLab" && y === 3 && (x === 1 || x === 2 || x === 3)) {
+                ctx.fillStyle = "#e04a4a";
+                ctx.beginPath();
+                ctx.arc(x * 16 - camX + 8, y * 16 - camY + 8, 4, 0, Math.PI * 2);
+                ctx.fill();
+              }
+            }
+          }
+
+          const pSp = chSprite("player", st.dir || "up");
+          ctx.drawImage(pSp, px * 16 - camX, py * 16 - camY - 2);
+
+          if (mapId === "eulerLab") {
+            const profSp = chSprite("prof", "down");
+            ctx.drawImage(profSp, 4 * 16 - camX, 2 * 16 - camY - 2);
+          }
+        } else if (scene === "battle") {
+          const b = battleStateRef.current;
+          if (b && b.enemy) {
+            ctx.fillStyle = "#4a6898";
+            ctx.fillRect(0, 0, 240, 75);
+            ctx.fillStyle = "#88b068";
+            ctx.fillRect(0, 75, 240, 85);
+
+            ctx.fillStyle = "#689050";
+            ctx.beginPath(); ctx.ellipse(180, 68, 42, 10, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(64, 120, 52, 12, 0, 0, Math.PI * 2); ctx.fill();
+
+            const eSp = spr(b.enemy.sp, "front", 64);
+            if (eSp) ctx.drawImage(eSp, 148, 20, 64, 64);
+
+            const team = st.team || [];
+            const pMon = team[b.playerMonIndex] || team[0];
+            if (pMon) {
+              const pSp = spr(pMon.sp, "back", 72);
+              if (pSp) ctx.drawImage(pSp, 28, 60, 72, 72);
             }
           }
         }
-
-        // 플레이어 캐릭터 스프라이트
-        const pSp = chSprite("player", st.dir);
-        ctx.drawImage(pSp, st.x * 16 - camX, st.y * 16 - camY - 2);
-
-        // 오일러 박사 NPC (연구소 내 책상 뒤)
-        if (st.map === "eulerLab") {
-          const profSp = chSprite("prof", "down");
-          ctx.drawImage(profSp, 4 * 16 - camX, 2 * 16 - camY - 2);
-        }
-      } else if (scene === "battle") {
-        // 턴제 배틀 씬 렌더링
-        const b = battleStateRef.current;
-        if (b) {
-          // 배틀 배경 그리기
-          ctx.fillStyle = "#4a6898";
-          ctx.fillRect(0, 0, 240, 75);
-          ctx.fillStyle = "#88b068";
-          ctx.fillRect(0, 75, 240, 85);
-
-          // 상대 및 아군 발판 타원
-          ctx.fillStyle = "#689050";
-          ctx.beginPath(); ctx.ellipse(180, 68, 42, 10, 0, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.ellipse(64, 120, 52, 12, 0, 0, Math.PI * 2); ctx.fill();
-
-          // 상대 몬스터 (front)
-          const eSp = spr(b.enemy.sp, "front", 64);
-          ctx.drawImage(eSp, 148, 20, 64, 64);
-
-          // 내 몬스터 (back)
-          const pMon = st.team[b.playerMonIndex] || st.team[0];
-          if (pMon) {
-            const pSp = spr(pMon.sp, "back", 72);
-            ctx.drawImage(pSp, 28, 60, 72, 72);
-          }
-        }
+      } catch (err) {
+        console.error("Render loop caught error:", err);
       }
 
       animId = requestAnimationFrame(render);
@@ -488,30 +507,29 @@ export default function GameBoyConsole() {
     if (scene !== "world" || tbVisible) return;
 
     const st = gameStateRef.current;
+    if (!st) return;
     st.dir = dir;
 
-    let nx = st.x;
-    let ny = st.y;
+    let nx = typeof st.x === "number" ? st.x : 4;
+    let ny = typeof st.y === "number" ? st.y : 6;
     if (dir === "up") ny--;
     if (dir === "down") ny++;
     if (dir === "left") nx--;
     if (dir === "right") nx++;
 
-    const m = MAPS.current[st.map];
+    const mapId = st.map || "eulerLab";
+    const m = MAPS.current[mapId];
     if (!m) return;
 
-    // 경계 및 벽 충돌 검사
     if (nx < 0 || ny < 0 || nx >= m.w || ny >= m.h) return;
-    const tile = m.grid[ny][nx];
+    const tile = m.grid[ny]?.[nx];
 
-    // 충돌 타일: w(벽), T(나무), b(책상)
     if (tile === "w" || tile === "T" || tile === "b") {
       SFX.bump();
       return;
     }
 
-    // 워프 검사: 연구소 문 -> 마을
-    if (st.map === "eulerLab" && tile === "D") {
+    if (mapId === "eulerLab" && tile === "D") {
       st.map = "eulerTown";
       st.x = 4;
       st.y = 5;
@@ -519,8 +537,7 @@ export default function GameBoyConsole() {
       SFX.sel();
       return;
     }
-    // 마을 입구 -> 연구소
-    if (st.map === "eulerTown" && nx === 4 && ny === 4) {
+    if (mapId === "eulerTown" && nx === 4 && ny === 4) {
       st.map = "eulerLab";
       st.x = 4;
       st.y = 7;
@@ -528,8 +545,7 @@ export default function GameBoyConsole() {
       SFX.sel();
       return;
     }
-    // 마을 북쪽 -> 1번 도로
-    if (st.map === "eulerTown" && ny === 0) {
+    if (mapId === "eulerTown" && ny === 0) {
       st.map = "route1";
       st.x = 5;
       st.y = 14;
@@ -537,8 +553,7 @@ export default function GameBoyConsole() {
       SFX.sel();
       return;
     }
-    // 1번 도로 남쪽 -> 마을
-    if (st.map === "route1" && ny === 15) {
+    if (mapId === "route1" && ny === 15) {
       st.map = "eulerTown";
       st.x = 8;
       st.y = 1;
@@ -547,16 +562,14 @@ export default function GameBoyConsole() {
       return;
     }
 
-    // 이동 확정
     st.x = nx;
     st.y = ny;
     SFX.mv();
 
-    // 풀숲 인카운터 검사 (tile === ',')
-    if (tile === "," && st.team.length > 0) {
+    const team = st.team || [];
+    if (tile === "," && team.length > 0) {
       if (Math.random() < 0.22) {
-        // 야생 몬스터 조우!
-        const wildList = st.map === "route1" ? ["line", "parallel", "compass"] : ["line", "parallel"];
+        const wildList = mapId === "route1" ? ["line", "parallel", "compass"] : ["line", "parallel"];
         const pickSp = wildList[Math.floor(Math.random() * wildList.length)];
         startBattle(pickSp, Math.floor(Math.random() * 3) + 3, "wild");
       }
@@ -578,29 +591,33 @@ export default function GameBoyConsole() {
     }
 
     const st = gameStateRef.current;
+    if (!st) return;
 
     if (scene === "world") {
-      // 연구소 책상 위 몬스터볼 선택
+      const team = st.team || [];
       if (st.map === "eulerLab" && st.dir === "up" && st.y === 4) {
-        if (st.team.length > 0) {
+        if (team.length > 0) {
           showText("오일러 박사: 이미 자네는 멋진 파트너 수학몬을 데리고 있잖은가!");
           return;
         }
 
         if (st.x === 1) {
-          // 풀 스타팅 각도롱
+          if (!st.team) st.team = [];
+          if (!st.caught) st.caught = {};
           st.team.push(createMon("angle", 5));
           st.caught["angle"] = true;
           SFX.catch();
           showText("지우는 풀 타입의 [각도롱]을 파트너로 선택했다!");
         } else if (st.x === 2) {
-          // 불 스타팅 다면호
+          if (!st.team) st.team = [];
+          if (!st.caught) st.caught = {};
           st.team.push(createMon("poly", 5));
           st.caught["poly"] = true;
           SFX.catch();
           showText("지우는 불 타입의 [다면호]를 파트너로 선택했다!");
         } else if (st.x === 3) {
-          // 물 스타팅 원뿔범
+          if (!st.team) st.team = [];
+          if (!st.caught) st.caught = {};
           st.team.push(createMon("cone", 5));
           st.caught["cone"] = true;
           SFX.catch();
@@ -628,7 +645,6 @@ export default function GameBoyConsole() {
     unlockAudio();
     if (scene === "world") {
       setActiveMenu(m => (m ? null : "start"));
-      setMenuCursor(0);
       SFX.sel();
     }
   };
@@ -644,7 +660,6 @@ export default function GameBoyConsole() {
 
     setCurrentQuiz(q);
     setQuizTimer(8);
-    setQuizSelected(0);
     setQuizAnswered(false);
     setQuizFeedback(null);
   };
@@ -705,19 +720,22 @@ export default function GameBoyConsole() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [scene, tbVisible, activeMenu]);
 
-  // 배틀 중인 몬스터 상태
-  const activePlayerMon = gameStateRef.current.team[0];
-  const activeEnemyMon = battleStateRef.current?.enemy;
+  // 안전한 배틀 상태 조회
+  const teamList = gameStateRef.current?.team || [];
+  const activePlayerMon = teamList[0] || null;
+  const activeEnemyMon = battleStateRef.current?.enemy || null;
+  const items = gameStateRef.current?.items || { potion: 5, ball: 10 };
+  const wrongNotesList = gameStateRef.current?.wrongNotes || [];
+  const caughtCount = Object.keys(gameStateRef.current?.caught || {}).length;
 
   return (
     <div id="app">
       <div id="console">
         <div id="bezel">
           <div id="screen">
-            {/* 캔버스 240x160 레트로 화면 */}
             <canvas id="cv" ref={canvasRef} width={240} height={160} />
 
-            {/* 타이틀 화면 UI 오버레이 */}
+            {/* 타이틀 화면 */}
             {scene === "title" && (
               <div id="title">
                 <div className="logo">
@@ -731,7 +749,6 @@ export default function GameBoyConsole() {
             {/* 배틀 UI 레이어 */}
             {scene === "battle" && activeEnemyMon && activePlayerMon && (
               <div id="ui">
-                {/* 상대 HP 게이지 (좌상단) */}
                 <div id="ehp" className="stat box">
                   <div className="nm">
                     <span>{activeEnemyMon.name}</span>
@@ -748,7 +765,6 @@ export default function GameBoyConsole() {
                   </div>
                 </div>
 
-                {/* 내 HP 및 XP 게이지 (우하단) */}
                 <div id="php" className="stat box">
                   <div className="nm">
                     <span>{activePlayerMon.name}</span>
@@ -771,10 +787,9 @@ export default function GameBoyConsole() {
                   </div>
                 </div>
 
-                {/* 기술 선택 메뉴 (하단) */}
                 {!tbVisible && !currentQuiz && (
                   <div className="menu moves box">
-                    {activePlayerMon.moves.map((mv, i) => (
+                    {(activePlayerMon.moves || []).map((mv, i) => (
                       <button
                         key={i}
                         className="mi"
@@ -784,7 +799,7 @@ export default function GameBoyConsole() {
                       </button>
                     ))}
                     <button className="mi" onClick={throwBall}>
-                      볼던지기 ({gameStateRef.current.items.ball})
+                      볼던지기 ({items.ball || 0})
                     </button>
                     <button className="mi" onClick={() => { setScene("world"); hideText(); }}>
                       도망치기
@@ -794,7 +809,7 @@ export default function GameBoyConsole() {
               </div>
             )}
 
-            {/* 중1 2학기 수학 퀴즈 팝업 (8초 급소 타이머) */}
+            {/* 퀴즈 팝업 */}
             {currentQuiz && (
               <div className="quiz box">
                 <div className="qh">
@@ -812,7 +827,7 @@ export default function GameBoyConsole() {
                   )}
                 </div>
                 <div className="qo">
-                  {currentQuiz.opts.map((opt, i) => (
+                  {(currentQuiz.opts || []).map((opt, i) => (
                     <button
                       key={i}
                       className={`opt ${quizAnswered && opt === currentQuiz.ans ? "ok" : ""}`}
@@ -840,13 +855,13 @@ export default function GameBoyConsole() {
               </div>
             )}
 
-            {/* START 메뉴 오버레이 */}
+            {/* START 메뉴 */}
             {activeMenu === "start" && (
               <div className="menu start box">
-                <div className="mi" onClick={() => setActiveMenu("team")}>수학몬 ({gameStateRef.current.team.length})</div>
-                <div className="mi" onClick={() => setActiveMenu("dex")}>도감 ({Object.keys(gameStateRef.current.caught).length}종)</div>
+                <div className="mi" onClick={() => setActiveMenu("team")}>수학몬 ({teamList.length})</div>
+                <div className="mi" onClick={() => setActiveMenu("dex")}>도감 ({caughtCount}종)</div>
                 <div className="mi" onClick={() => setActiveMenu("bag")}>가방 (상처약/볼)</div>
-                <div className="mi" onClick={() => setActiveMenu("notes")}>오답노트 ({gameStateRef.current.wrongNotes.length})</div>
+                <div className="mi" onClick={() => setActiveMenu("notes")}>오답노트 ({wrongNotesList.length})</div>
                 <div className="mi" onClick={() => setActiveMenu("pvp")}>통신 대전 센터</div>
                 <div className="mi" onClick={saveGame}>리포트 (저장)</div>
                 <div className="mi" onClick={() => setActiveMenu(null)}>닫기</div>
@@ -856,12 +871,12 @@ export default function GameBoyConsole() {
             {/* 오답노트 패널 */}
             {activeMenu === "notes" && (
               <div className="panel box">
-                <h3>오답노트 <small>{gameStateRef.current.wrongNotes.length}문제</small></h3>
+                <h3>오답노트 <small>{wrongNotesList.length}문제</small></h3>
                 <div className="list">
-                  {gameStateRef.current.wrongNotes.length === 0 ? (
+                  {wrongNotesList.length === 0 ? (
                     <div>틀린 문제가 없습니다! 훌륭합니다!</div>
                   ) : (
-                    gameStateRef.current.wrongNotes.map((n, i) => (
+                    wrongNotesList.map((n, i) => (
                       <div key={i} className="row">
                         <div>
                           <div><b>Q.</b> {n.q}</div>
@@ -875,7 +890,7 @@ export default function GameBoyConsole() {
               </div>
             )}
 
-            {/* 통신 대전 센터 패널 (PVP) */}
+            {/* 통신 대전 센터 패널 */}
             {activeMenu === "pvp" && (
               <div className="panel box">
                 <h3>통신 배틀 센터 <small>Supabase Realtime</small></h3>
@@ -921,7 +936,7 @@ export default function GameBoyConsole() {
           </div>
         </div>
 
-        {/* 조작 컨트롤러 (D-pad & A/B 버튼) */}
+        {/* 조작 패드 */}
         <div id="pad">
           <div className="dpad">
             <button className="u" onClick={() => movePlayer("up")}>▲</button>
